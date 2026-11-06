@@ -2,14 +2,14 @@
 <html lang="pl">
 <head>
 <meta charset="utf-8">
-<title>MODFUNK – Ucieczka przed Kanarami (Amiga / Atari ST)</title>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<title>SUBWAY RALLY – Modfunk: We Got Game</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;height:100%;background:#000;color:#ccc;font-family:monospace;overflow:hidden}
   #wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
   canvas{image-rendering:pixelated;image-rendering:crisp-edges;background:#000;width:min(100vw,calc(88vh * 640 / 384));height:auto;box-shadow:0 0 40px #224}
-  #help{font-size:12px;color:#888;margin-top:6px;text-align:center;line-height:1.5}
+  #help{font-size:12px;color:#888;margin-top:6px;text-align:center;line-height:1.6}
   kbd{background:#222;border:1px solid #555;padding:0 4px;border-radius:3px;color:#ddd}
 </style>
 </head>
@@ -17,397 +17,433 @@
 <div id="wrap">
 <canvas id="c" width="640" height="384"></canvas>
 <div id="help">
-  <b>P1</b> <kbd>←</kbd><kbd>→</kbd> bieg · <kbd>↑</kbd><kbd>↓</kbd> drabina · <kbd>Spacja</kbd> skok &nbsp;|&nbsp;
-  <b>P2</b> <kbd>A</kbd><kbd>D</kbd> · <kbd>W</kbd><kbd>S</kbd> · <kbd>Shift</kbd> skok &nbsp;|&nbsp;
-  <kbd>1</kbd>/<kbd>2</kbd> start 1P/2P · <kbd>M</kbd> dźwięk · <kbd>P</kbd> pauza
+  <b>P1</b> <kbd>←</kbd><kbd>→</kbd> bieg · <kbd>↑</kbd><kbd>↓</kbd> drabina/schody · <kbd>Spacja</kbd> FIRE = salto &nbsp;|&nbsp;
+  <b>P2</b> <kbd>A</kbd><kbd>D</kbd> · <kbd>W</kbd><kbd>S</kbd> · <kbd>Shift</kbd> salto<br>
+  <kbd>1</kbd>/<kbd>2</kbd> start 1P/2P · <kbd>F</kbd> grafika Amiga/ST ↔ Atari XL · <kbd>M</kbd> dźwięk · <kbd>P</kbd> pauza
 </div>
 </div>
 <script>
 'use strict';
-// ====================== MODFUNK ======================
-// Platformówka w duchu Bruce Lee / Lode Runner. Grafika 16-bit (Amiga / Atari ST):
-// logika na siatce 320x192 (kafelki 8x8), rendering x2 = 640x384, cieniowane sprite'y, copper bary.
-const W=320,H=192,T=8,COLS=40,ROWS=24;
+// ====================== SUBWAY RALLY (Modfunk: We Got Game) ======================
+// Zręcznościowa platformówka w duchu Bruce Lee / Lode Runner.
+// Logika na siatce 320x192 (kafelki 8x8, 40x24). Rendering x2 (640x384) w dwóch trybach:
+//   'amiga' – 16-bit (cieniowanie, gradienty, copper bary)   'xl' – 8-bit Atari 800XL (płaskie kolory)
+let MODE = (location.hash==='#xl' || document.title.includes('XL')) ? 'xl' : 'amiga';
+const W=320,H=192,T=8,COLS=40,ROWS=24,Z=2;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 ctx.imageSmoothingEnabled=false;
-const Z=2; // skala renderingu (pół-piksele logiczne = piksele ekranu)
 const FONT='"Press Start 2P",monospace';
 
-// --- Poziomy (linie metra) ---------------------------------------
-// #  peron/strop    H drabina/schody    T bilet    C kaseta (Turbo-Chrome)
-// E  wyjście (wagon) K kanar             P gracz1   Q gracz2   .  pusto
-const LEVELS=[
-{ name:'LINIA NIEBIESKA', sub:'STACJE TECHNICZNE', speed:0.55, kanarCount:3,
-  pal:{bg:'#101418',bg2:'#1c2a40',wall:'#6b7a8c',wallHi:'#a9b8c8',wall2:'#3a424c',ladder:'#9fb3c8',ladderHi:'#d7e2ee',ticket:'#f0e060',exit:'#4070ff',neon:'#4aa0ff',
-       suit1:'#ffffff',helm1:'#dddddd',suit2:'#202020',helm2:'#c0c0c0',kanar:'#2a6cff',kanarHat:'#ffd700',alarm:null},
-  map:[
+// --- Linie metra (palety) -----------------------------------------
+const LINES=[
+{ name:'LINIA NIEBIESKA', sub:'STACJE TECHNICZNE', speed:0.55,
+  pal:{bg:'#101418',bg2:'#1c2a40',wall:'#6b7a8c',wallHi:'#a9b8c8',wall2:'#3a424c',ladder:'#9fb3c8',ladderHi:'#d7e2ee',exit:'#4070ff',neon:'#4aa0ff',
+       suit1:'#ffffff',helm1:'#dddddd',suit2:'#202020',helm2:'#c0c0c0',kanar:'#1a3a8c',kanarHat:'#ffd700',alarm:null}},
+{ name:'LINIA ZIELONA', sub:'PODZIEMNE OGRODY', speed:0.8,
+  pal:{bg:'#06140a',bg2:'#124a22',wall:'#2e8b3a',wallHi:'#6fd47a',wall2:'#1b5a24',ladder:'#8fd48f',ladderHi:'#d8ffd8',exit:'#20e040',neon:'#50ff80',
+       suit1:'#ffe600',helm1:'#ff8c00',suit2:'#202020',helm2:'#c0c0c0',kanar:'#1a3a8c',kanarHat:'#ffd700',alarm:null}},
+{ name:'LINIA CZERWONA', sub:'TUNELE POD RZEKA', speed:1.0,
+  pal:{bg:'#120408',bg2:'#4a0c14',wall:'#8a2a2a',wallHi:'#d06060',wall2:'#4a1414',ladder:'#d08080',ladderHi:'#ffc0c0',exit:'#ff3030',neon:'#ff4060',
+       suit1:'#40e0ff',helm1:'#b040ff',suit2:'#202020',helm2:'#c0c0c0',kanar:'#1a3a8c',kanarHat:'#ffd700',alarm:'#ff2020'}}
+];
+// --- Stacje (mapy) ------------------------------------------------
+// #  peron/strop   H drabina   U/D ruchome schody (w górę / w dół)   G bramka biletowa (przeskocz!)
+// V  winyl   C kaseta   E wagon (wyjście)   N wnęka (schron przed pociągiem)   = tory
+// K kanar gruby   L łowca   B boss (Główny Kierownik Ruchu)   P gracz1   Q gracz2
+const STATIONS=[
+{ name:'BRAMKI BILETOWE', type:'gates', map:[
 "########################################",
-"#P.....................................#",
-"#######H############T#######H###########",
-"#......H............#.......H..........#",
-"#..T...H.....K......#.......H.....T....#",
-"####H#######################H####H######",
-"#...H.......................H....H.....#",
-"#...H..T...........T.......H....H..C..#",
-"#########H#################H###########",
-"#........H...K...........H.............#",
-"#....T...H...............H.......T.....#",
-"#H##############H############H##########",
-"#H..............H............H.........#",
-"#H....T.........H....K.......H.....T...#",
-"########H########H#####H################",
-"#.......H........H.....H...............#",
-"#...T...H........H.....H...T...........#",
-"######H############H####H#####H#########",
-"#.....H............H....H.....H........#",
-"#.....H.....T......H....H.....H....T...#",
-"#H###############H############H#########",
-"#H..............H..............H..Q.E..#",
+"#P......G........V.........G...........#",
+"#######H#####################H##########",
+"#......H.....................H.........#",
+"#..V...H..G.......K.....G....H....V....#",
+"####H###########################H#######",
+"#...H...........................H......#",
+"#...H..V....G.........L....G...H...C...#",
+"#########H####################H#########",
+"#........H....K...............H........#",
+"#....V...H.......G.......G....H...V....#",
+"#H################H############H########",
+"#H................H............H.......#",
+"#H....V....G......H.....K..G...H....V..#",
+"########H#########H######H##############",
+"#.......H.........H......H.............#",
+"#...V...H..G......H..L...H...G..V......#",
+"######H###########H######H#####H########",
+"#.....H...........H......H.....H.......#",
+"#.....H.....V..G..H......H..G..H....V..#",
+"#H###############H#############H########",
+"#H.......G......H........G.....H..Q.E..#",
 "#H..............H..............H.......#",
 "########################################"]},
-{ name:'LINIA ZIELONA', sub:'PODZIEMNE OGRODY', speed:0.8, kanarCount:4,
-  pal:{bg:'#06140a',bg2:'#124a22',wall:'#2e8b3a',wallHi:'#6fd47a',wall2:'#1b5a24',ladder:'#8fd48f',ladderHi:'#d8ffd8',ticket:'#ffffff',exit:'#20e040',neon:'#50ff80',
-       suit1:'#ffe600',helm1:'#ff8c00',suit2:'#202020',helm2:'#c0c0c0',kanar:'#108030',kanarHat:'#ffd700',alarm:null},
-  map:[
+{ name:'RUCHOME SCHODY', type:'escalator', map:[
 "########################################",
-"#P.........T......................T....#",
-"####H#########H##############H##########",
-"#...H.........H..............H.........#",
-"#...H..K......H...T...........H...C....#",
-"#########H####################H#########",
-"#........H....................H........#",
-"#.T......H........K.........H.....T....#",
-"#####H###########H#########H###########",
-"#....H...........H.........H...........#",
-"#....H.....T.....H....T....H.......K...#",
-"##########H############H##########H#####",
-"#.........H............H..........H....#",
-"#...T.....H...K........H......T...H....#",
-"#H###############H###########H##########",
-"#H...............H...........H.........#",
-"#H.....T.........H....T......H.........#",
-"######H#####H##########H########H#######",
-"#.....H.....H..........H........H......#",
-"#.....H..T..H..........H..T.....H......#",
-"##H#############H#############H#########",
-"#.H.............H.............H....Q.E.#",
-"#.H.............H.............H........#",
+"#P.......V..........L.............V....#",
+"#####D##################U###############",
+"#....D..................U..............#",
+"#..V.D....K.............U.......V......#",
+"#########D######################U#######",
+"#........D......................U......#",
+"#..V.....D......L........V......U...C..#",
+"#####D########################U#########",
+"#....D........................U........#",
+"#....D...V......K.....V.......U........#",
+"##########D###########H##########U######",
+"#.........D...........H..........U.....#",
+"#...V.....D...L.......H...V......U.....#",
+"#H################D##########U##########",
+"#H................D..........U.........#",
+"#H.....V..........D....K.....U...V.....#",
+"######D#####H##########U########U#######",
+"#.....D.....H..........U........U......#",
+"#.....D..V..H..........U..V.....U......#",
+"##D###############H#############U#######",
+"#.D.......K.......H.............U..Q.E.#",
+"#.D...............H.............U......#",
 "########################################"]},
-{ name:'LINIA CZERWONA', sub:'TUNELE POD RZEKA', speed:1.05, kanarCount:5,
-  pal:{bg:'#120408',bg2:'#4a0c14',wall:'#8a2a2a',wallHi:'#d06060',wall2:'#4a1414',ladder:'#d08080',ladderHi:'#ffc0c0',ticket:'#ffffff',exit:'#ff3030',neon:'#ff4060',
-       suit1:'#40e0ff',helm1:'#b040ff',suit2:'#202020',helm2:'#c0c0c0',kanar:'#c01010',kanarHat:'#ffd700',alarm:'#ff2020'},
-  map:[
+{ name:'PERON I TORY', type:'train', map:[
 "########################################",
-"#P.......T.................T...........#",
+"#P.......V.................V...........#",
 "#######H###########H###########H########",
 "#......H...........H...........H.......#",
-"#..K...H....T......H...K.......H..T....#",
+"#..K...H....V......H...L.......H..V....#",
 "#####H####################H#############",
 "#....H....................H............#",
-"#....H..........T.........H.....K......#",
+"#....H..........V.........H.....K......#",
 "##########H#######################H#####",
 "#.........H..............K........H....#",
-"#...T.....H.......T...............H..C.#",
+"#...V.....H.......V...............H..C.#",
 "#H###############H############H#########",
 "#H...............H............H........#",
-"#H....T..........H...K........H...T....#",
+"#H....V..........H...L........H...V....#",
 "#######H###############H################",
 "#......H...............H...............#",
-"#...T..H.......T.......H.......T.......#",
+"#...V..H.......V.......H.......V.......#",
 "############H##########H#######H########",
 "#...........H..........H.......H.......#",
-"#.....T.....H....K.....H.......H..T....#",
-"#H################H############H########",
-"#H................H............H..Q.E..#",
-"#H................H............H.......#",
-"########################################"]}
+"#.....V.....H....L.....H.......H..V....#",
+"#N##N###N#########N######N####N###N#####",
+"#.V.......V.....V..B..V......V.....Q.E.#",
+"#......................................#",
+"#======================================#"]}
 ];
+const LEVELS=[];for(let l=0;l<3;l++)for(let s=0;s<3;s++)LEVELS.push({line:l,station:s});
+const TITLE='SUBWAY RALLY';
 
-// --- Dźwięk (POKEY-owe piski) ------------------------------------
+// --- Dźwięk (POKEY) + sekwencer ------------------------------------
 let AC=null,mute=false;
 function beep(f,d=0.06,type='square',v=0.08){
-  if(mute)return; try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)();
-  const o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.value=f;
+  if(mute||!AC)return; try{const o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.value=f;
   g.gain.value=v;g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+d);
   o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d);}catch(e){}
 }
+// "We Got Game" w wersji 8-bit: funky bas + lead
+const BASS=[55,55,82,55,65,55,82,98, 55,55,82,55,65,73,65,49];
+const LEAD=[0,330,0,392,0,440,0,392, 0,330,0,294,0,330,0,0];
+let mstep=0,mtick=0;
+function music(fast){ if(mute||!AC||state!=='play'||paused)return; mtick++; const per=fast?4:8; if(mtick%per)return;
+  beep(BASS[mstep%16]*(fast?2:1),0.12,'triangle',0.09); if(LEAD[mstep%16])beep(LEAD[mstep%16],0.08,'square',0.035); mstep++; }
 
-// --- Stan --------------------------------------------------------
+// --- Stan ----------------------------------------------------------
 const keys={};
-addEventListener('keydown',e=>{keys[e.code]=true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault(); onKey(e.code);});
+addEventListener('keydown',e=>{keys[e.code]=true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+  if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(x){}} onKey(e.code);});
 addEventListener('keyup',e=>{keys[e.code]=false;});
 
-let state='title',level=0,lap=0,grid=[],players=[],kanars=[],ticketsLeft=0,frame=0,score=0,flash=0,msg='',msgT=0,lives=5,paused=false;
-let twoP=false;
+let state='title',level=0,lap=0,grid=[],players=[],kanars=[],boss=null,vinylLeft=0,frame=0,score=0,flash=0,msg='',msgT=0,lives=5,paused=false,twoP=false;
+let train={t:0,x:-100,active:false,warn:0};
+function L(){return LINES[LEVELS[level].line];} function S(){return STATIONS[LEVELS[level].station];}
 
 function tile(x,y){ if(x<0||y<0||x>=COLS||y>=ROWS)return '#'; return grid[y][x]; }
-function solid(px,py){ return tile(Math.floor(px/T),Math.floor(py/T))==='#'; }
-function ladderAt(px,py){ return tile(Math.floor(px/T),Math.floor(py/T))==='H'; }
+function solidT(c){return c==='#'||c==='G'||c==='=';}
+function solid(px,py){ return solidT(tile(Math.floor(px/T),Math.floor(py/T))); }
+function climbT(c){return c==='H'||c==='U'||c==='D';}
+function ladderAt(px,py){ return climbT(tile(Math.floor(px/T),Math.floor(py/T))); }
 
-function mkActor(x,y,kind){ return {x,y,vx:0,vy:0,w:6,h:8,dir:1,kind,onLadder:false,ground:false,anim:0,dead:0,turbo:0,stun:0,respawn:{x,y}}; }
+function mkActor(x,y,kind){ return {x,y,vx:0,vy:0,w:6,h:8,dir:1,kind,onLadder:false,ground:false,anim:0,dead:0,turbo:0,stun:0,inv:0,air:0,fly:0,respawn:{x,y},alert:0}; }
 
 function loadLevel(i){
-  const L=LEVELS[i]; grid=L.map.map(r=>r.split('')); kanars=[]; ticketsLeft=0;
-  const P1=players[0]||null,P2=players[1]||null; players=[];
+  const st=STATIONS[LEVELS[i].station]; grid=st.map.map(r=>r.split('')); kanars=[]; boss=null; vinylLeft=0; players=[];
+  train={t:0,x:-100,active:false,warn:0};
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     const c=grid[y][x];
-    if(c==='T')ticketsLeft++;
-    if(c==='K'){kanars.push(mkActor(x*T+1,y*T,'kanar'));grid[y][x]='.';}
+    if(c==='V')vinylLeft++;
+    if(c==='K'){const k=mkActor(x*T+1,y*T,'fat');k.w=7;kanars.push(k);grid[y][x]='.';}
+    if(c==='L'){kanars.push(mkActor(x*T+1,y*T,'hunter'));grid[y][x]='.';}
+    if(c==='B'){grid[y][x]='.';if(i===LEVELS.length-1){boss=mkActor(x*T,y*T-4,'boss');boss.w=10;boss.h=12;boss.hp=3;}}
     if(c==='P'){const p=mkActor(x*T+1,y*T,'p1');p.id=0;players.push(p);grid[y][x]='.';}
     if(c==='Q'){if(twoP){const p=mkActor(x*T+1,y*T,'p2');p.id=1;players.push(p);}grid[y][x]='.';}
   }
-  // ekstra kanary na kolejnych okrążeniach
-  for(let k=kanars.length;k<L.kanarCount+lap;k++){const b=kanars[k%kanars.length];kanars.push(mkActor(b.x,b.y,'kanar'));}
-  flash=0; msg=L.name+' – '+L.sub; msgT=150;
+  for(let k=0;k<lap;k++){const b=kanars[k%kanars.length];kanars.push(mkActor(b.x,b.y,'hunter'));}
+  flash=0; msg=L().name+' / '+st.name; msgT=150;
 }
-
-function startGame(p2){ twoP=p2; level=0; lap=0; score=0; lives=5; players=[]; loadLevel(0); state='play'; beep(440,0.1); }
-
+function startGame(p2){ twoP=p2; level=0; lap=0; score=0; lives=5; loadLevel(0); state='play'; beep(440,0.1); mstep=0; }
 function onKey(code){
   if(code==='KeyM'){mute=!mute;return;}
+  if(code==='KeyF'){MODE=MODE==='amiga'?'xl':'amiga';return;}
   if(code==='KeyP'&&state==='play'){paused=!paused;return;}
-  if(state==='title'||state==='over'||state==='win'){
-    if(code==='Digit1')startGame(false);
-    if(code==='Digit2')startGame(true);
-  }
+  if(state!=='play'){ if(code==='Digit1')startGame(false); if(code==='Digit2')startGame(true); }
 }
 
-// --- Fizyka ------------------------------------------------------
+// --- Fizyka --------------------------------------------------------
 function moveActor(a,dx,dy){
-  // ruch poziomy
   a.x+=dx;
-  if(dx>0&&(solid(a.x+a.w,a.y)||solid(a.x+a.w,a.y+a.h-1)))a.x=Math.floor((a.x+a.w)/T)*T-a.w;
-  if(dx<0&&(solid(a.x,a.y)||solid(a.x,a.y+a.h-1)))a.x=Math.floor(a.x/T)*T+T;
-  // pionowy
+  if(dx>0&&(solid(a.x+a.w,a.y)||solid(a.x+a.w,a.y+a.h-1))){a.x=Math.floor((a.x+a.w)/T)*T-a.w;a.blocked=true;}
+  if(dx<0&&(solid(a.x,a.y)||solid(a.x,a.y+a.h-1))){a.x=Math.floor(a.x/T)*T+T;a.blocked=true;}
   a.y+=dy;
   if(dy>0&&(solid(a.x,a.y+a.h)||solid(a.x+a.w-1,a.y+a.h))){a.y=Math.floor((a.y+a.h)/T)*T-a.h;a.vy=0;a.ground=true;}
   if(dy<0&&(solid(a.x,a.y)||solid(a.x+a.w-1,a.y))){a.y=Math.floor(a.y/T)*T+T;a.vy=0;}
 }
 function centerOnLadder(a){ const cx=a.x+a.w/2; return ladderAt(cx,a.y+a.h/2)||ladderAt(cx,a.y+a.h); }
+function ladderType(a){const cx=a.x+a.w/2;let c=tile(Math.floor(cx/T),Math.floor((a.y+a.h/2)/T));if(!climbT(c))c=tile(Math.floor(cx/T),Math.floor((a.y+a.h)/T));return c;}
 
 function updatePlayer(p){
   if(p.dead>0){p.dead--; if(p.dead===0){p.x=p.respawn.x;p.y=p.respawn.y;p.vy=0;p.inv=120;} return;}
   if(p.inv>0)p.inv--;
-  const k=p.id===0?{l:'ArrowLeft',r:'ArrowRight',u:'ArrowUp',d:'ArrowDown',j:'Space'}
-                   :{l:'KeyA',r:'KeyD',u:'KeyW',d:'KeyS',j:'ShiftLeft'};
-  const sp=1.2+(p.turbo>0?0.5:0);
-  let dx=0;
-  if(keys[k.l]){dx=-sp;p.dir=-1;} if(keys[k.r]){dx=sp;p.dir=1;}
-  const onL=centerOnLadder(p);
-  const wantU=keys[k.u],wantD=keys[k.d];
+  const k=p.id===0?{l:'ArrowLeft',r:'ArrowRight',u:'ArrowUp',d:'ArrowDown',j:'Space'}:{l:'KeyA',r:'KeyD',u:'KeyW',d:'KeyS',j:'ShiftLeft'};
+  const sp=1.2+(p.turbo>0?0.6:0);
+  let dx=0; if(keys[k.l]){dx=-sp;p.dir=-1;} if(keys[k.r]){dx=sp;p.dir=1;}
+  const onL=centerOnLadder(p),wantU=keys[k.u],wantD=keys[k.d];
   if(onL&&(wantU||wantD||p.onLadder)){
-    if(wantU||wantD){p.onLadder=true;}
+    if(wantU||wantD)p.onLadder=true;
     if(p.onLadder){
-      p.vy=0; let dy=0; if(wantU)dy=-1; if(wantD)dy=1;
-      // wyrównaj do drabiny
+      p.vy=0;p.air=0; let dy=0; if(wantU)dy=-1; if(wantD)dy=1;
+      const lt=ladderType(p); if(lt==='U')dy-=0.7; if(lt==='D')dy+=(wantD?1.2:0.7); // ruchome schody / zjazd po poręczy
       const lx=Math.floor((p.x+p.w/2)/T)*T+1; p.x+=(lx-p.x)*0.5;
       moveActor(p,dx*0.6,dy);
-      if(!centerOnLadder(p)&&dy<0){p.onLadder=false;p.ground=true;}
+      if(!centerOnLadder(p)){p.onLadder=false;p.ground=true;}
       if(dx!==0&&!wantU&&!wantD&&p.ground)p.onLadder=false;
       p.anim+=Math.abs(dy)+Math.abs(dx);
       return;
     }
   } else p.onLadder=false;
-  // grawitacja
   p.ground=false; p.vy=Math.min(p.vy+0.25,3);
-  if(keys[k.j]&&p.wasGround){p.vy=-3.0;beep(660,0.05,'triangle',0.05);}
+  if(keys[k.j]&&p.wasGround){p.vy=-3.0;p.air=1;beep(660,0.05,'triangle',0.05);}
   moveActor(p,dx,p.vy);
-  p.wasGround=p.ground;
+  p.wasGround=p.ground; if(p.ground)p.air=0; else if(p.air)p.air++;
   if(dx!==0)p.anim+=1;
-  // zbieranie
-  const tx=Math.floor((p.x+p.w/2)/T),ty=Math.floor((p.y+p.h/2)/T);
-  const c=tile(tx,ty);
-  if(c==='T'){grid[ty][tx]='.';ticketsLeft--;score+=100;beep(880,0.08);beep(1320,0.1);if(ticketsLeft===0){msg='WYJSCIE OTWARTE!';msgT=90;}}
-  if(c==='C'){grid[ty][tx]='.';p.turbo=60*8;score+=250;for(let i=0;i<6;i++)setTimeout(()=>beep(400+i*150,0.08),i*60);msg='TURBO-CHROME!';msgT=90;}
-  if(c==='E'&&ticketsLeft===0){nextLevel();}
+  const tx=Math.floor((p.x+p.w/2)/T),ty=Math.floor((p.y+p.h/2)/T),c=tile(tx,ty);
+  if(c==='V'){grid[ty][tx]='.';vinylLeft--;score+=100;beep(880,0.08);beep(1320,0.1);if(vinylLeft===0){msg=boss?'POKONAJ KIEROWNIKA RUCHU!':'WAGON OTWARTY!';msgT=90;}}
+  if(c==='C'){grid[ty][tx]='.';p.turbo=60*5;score+=250;for(let i=0;i<6;i++)setTimeout(()=>beep(400+i*150,0.08),i*60);msg='TURBO-CHROME!';msgT=90;}
+  if(c==='E'&&vinylLeft===0&&!boss){nextLevel();}
   if(p.turbo>0)p.turbo--;
 }
-
-function updateKanar(k,L){
-  if(k.stun>0){k.stun--; if(k.stun===0){k.x=k.respawn.x;k.y=k.respawn.y;} return;}
-  const sp=L.speed+lap*0.15;
-  // cel: najbliższy żywy gracz
+function updateKanar(k){
+  if(k.fly>0){ // komiczny odlot po staranowaniu
+    k.fly--;k.x+=k.vx;k.y+=k.vy;k.vy+=0.15;k.anim+=3; if(k.fly===0){k.stun=90;} return;
+  }
+  if(k.stun>0){k.stun--; if(k.stun===0){k.x=k.respawn.x;k.y=k.respawn.y;k.vy=0;} return;}
+  const base=L().speed+lap*0.15; let sp=k.kind==='fat'?base*0.6:base;
   let tgt=null,bd=1e9;
   for(const p of players){if(p.dead)continue;const d=Math.abs(p.x-k.x)+Math.abs(p.y-k.y)*2;if(d<bd){bd=d;tgt=p;}}
+  // łowca: widzi gracza na tym samym piętrze w zasięgu -> sprint
+  k.alert=0; if(k.kind==='hunter'&&tgt&&Math.abs(tgt.y-k.y)<6&&Math.abs(tgt.x-k.x)<90){sp*=1.9;k.alert=1;}
   const onL=centerOnLadder(k);
   if(tgt&&onL&&Math.abs(tgt.y-k.y)>4){
-    const dy=tgt.y<k.y?-1:1;
-    // sprawdź czy drabina prowadzi w tę stronę
-    const cx=k.x+k.w/2;
+    const dy=tgt.y<k.y?-1:1,cx=k.x+k.w/2;
     if((dy<0&&ladderAt(cx,k.y-1))||(dy>0&&ladderAt(cx,k.y+k.h+1))){
       k.onLadder=true;k.vy=0;const lx=Math.floor(cx/T)*T+1;k.x+=(lx-k.x)*0.5;
-      moveActor(k,0,dy*sp);k.anim+=1;return;
+      const lt=ladderType(k);moveActor(k,0,dy*sp+(lt==='D'?0.7:lt==='U'?-0.7:0));k.anim+=1;return;
     }
   }
   k.onLadder=false;
-  if(tgt){
-    const ddx=tgt.x-k.x;
-    if(Math.abs(ddx)>2)k.dir=ddx>0?1:-1;
-    // jeśli gracz na innym piętrze i brak drabiny tu – patroluj szukając drabiny
-    if(Math.abs(tgt.y-k.y)>4&&!onL){/* patrol dalej w swoim kierunku */}
-  }
-  k.ground=false;k.vy=Math.min(k.vy+0.25,3);
-  const ox=k.x;moveActor(k,k.dir*sp,k.vy);
-  if(k.x===ox)k.dir*=-1;
-  // nie spadaj z krawędzi (poza przypadkiem gdy ścigasz w dół)
+  if(tgt){const ddx=tgt.x-k.x;if(Math.abs(ddx)>2)k.dir=ddx>0?1:-1;}
+  k.ground=false;k.vy=Math.min(k.vy+0.25,3);k.blocked=false;
+  moveActor(k,k.dir*sp,k.vy);
+  if(k.blocked){k.dir*=-1;k.x+=k.dir*sp*2;}
   const fx=k.x+k.w/2+k.dir*4;
   if(k.ground&&!solid(fx,k.y+k.h+1)&&!ladderAt(fx,k.y+k.h+1)&&!(tgt&&tgt.y>k.y+8))k.dir*=-1;
   k.anim+=1;
 }
-
+function updateBoss(b){
+  if(b.stun>0){b.stun--;return;}
+  const sp=1.3+lap*0.2; let tgt=null,bd=1e9;
+  for(const p of players){if(p.dead)continue;const d=Math.abs(p.x-b.x);if(d<bd){bd=d;tgt=p;}}
+  if(tgt&&Math.abs(tgt.y-b.y)<16){b.dir=tgt.x>b.x?1:-1;} else if(frame%120===0)b.dir*=-1;
+  b.ground=false;b.vy=Math.min(b.vy+0.25,3);b.blocked=false;moveActor(b,b.dir*sp,b.vy);if(b.blocked)b.dir*=-1;b.anim+=1;
+  if(frame%90===0&&tgt)beep(90,0.3,'sawtooth',0.1); // gwizdek
+}
+function updateTrain(){
+  if(S().type!=='train')return;
+  train.t++;
+  if(!train.active){ if(train.t>60*10){train.warn++; if(train.warn%20===1)beep(1200,0.1,'square',0.06); if(train.t>60*12){train.active=true;train.x=-70;train.warn=0;}} return; }
+  train.x+=4; if(train.x>W+10){train.active=false;train.t=0;}
+  if(frame%6===0)beep(60+Math.random()*30,0.1,'sawtooth',0.12);
+  // trafienia: korytarz w wierszach 21-22, bezpieczny tylko gracz we wnęce (tile N nad nim)
+  const tx0=train.x,tx1=train.x+64;
+  for(const p of players){ if(p.dead||p.inv)continue; if(p.y+p.h>21*T&&p.x<tx1&&p.x+p.w>tx0){const tx=Math.floor((p.x+p.w/2)/T); if(tile(tx,20)==='N'&&p.y+p.h<=22*T+1){continue;} killPlayer(p);} }
+  for(const k of kanars){ if(k.stun||k.fly)continue; if(k.y+k.h>21*T&&k.x<tx1&&k.x+k.w>tx0){k.fly=30;k.vx=2;k.vy=-3;score+=50;} }
+}
 function collide(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
-
+function killPlayer(p){p.dead=60;lives--;beep(120,0.4,'sawtooth',0.12);flash=8;if(lives<=0){state='over';}}
 function nextLevel(){
   score+=500+100*lap; beep(523,0.1);setTimeout(()=>beep(659,0.1),100);setTimeout(()=>beep(784,0.2),200);
-  level++; if(level>=LEVELS.length){level=0;lap++;}
+  level++; if(level>=LEVELS.length){level=0;lap++;state='win';return;}
   loadLevel(level);
 }
-
 function update(){
   if(state!=='play'||paused)return;
-  frame++; const L=LEVELS[level];
+  frame++;
   for(const p of players)updatePlayer(p);
-  for(const k of kanars){updateKanar(k,L);
-    for(const p of players){ if(p.dead||k.stun||(p.inv>0&&!p.turbo))continue;
+  for(const k of kanars){updateKanar(k);
+    for(const p of players){ if(p.dead||k.stun||k.fly||(p.inv>0&&!p.turbo))continue;
       if(collide(p,k)){
-        if(p.turbo>0){k.stun=60*4;score+=300;beep(200,0.2,'sawtooth',0.1);msg='KANAR STARANOWANY!';msgT=60;}
-        else{p.dead=60;lives--;beep(120,0.4,'sawtooth',0.12);flash=8;
-          if(lives<=0){state='over';}
-        }
+        if(p.turbo>0){k.fly=40;k.vx=p.dir*2.5;k.vy=-3.5;score+=300;beep(200,0.2,'sawtooth',0.1);msg='KANAR W POWIETRZU!';msgT=50;}
+        else killPlayer(p);
       }
     }
   }
+  if(boss){updateBoss(boss);
+    for(const p of players){ if(p.dead||(p.inv>0&&!p.turbo)||boss.stun)continue;
+      if(collide(p,boss)){ if(p.turbo>0){boss.hp--;boss.stun=60;score+=500;beep(150,0.3,'sawtooth',0.12);msg='KIEROWNIK: '+boss.hp+' HP';msgT=60;
+          if(boss.hp<=0){boss=null;score+=2000;msg='KIEROWNIK POKONANY! DO WAGONU!';msgT=120;}} else killPlayer(p); } }
+  }
+  updateTrain();
+  music(players.some(p=>p.turbo>0));
   if(msgT>0)msgT--; if(flash>0)flash--;
 }
 
-// --- Rysowanie 16-bit (Amiga / Atari ST) ---------------------------
-function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x*Z),Math.round(y*Z),Math.round(w*Z),Math.round(h*Z));}
+// --- Rysowanie ------------------------------------------------------
+const A=()=>MODE==='amiga';
+function rect(x,y,w,h,c){ if(!A()){x=Math.floor(x);y=Math.floor(y);w=Math.ceil(w);h=Math.ceil(h);} ctx.fillStyle=c;ctx.fillRect(Math.round(x*Z),Math.round(y*Z),Math.round(w*Z),Math.round(h*Z));}
 function hsv(h,s=1,v=1){const f=(n)=>{const k=(n+h/60)%6;return Math.round(255*v*(1-s*Math.max(0,Math.min(k,4-k,1))));};return `rgb(${f(5)},${f(3)},${f(1)})`;}
-function shade(hex,f){const n=parseInt(hex.slice(1),16);const r=Math.min(255,((n>>16)&255)*f|0),g=Math.min(255,((n>>8)&255)*f|0),b=Math.min(255,(n&255)*f|0);return `rgb(${r},${g},${b})`;}
-function grad(x,y,w,h,c1,c2,horiz=false){const g=horiz?ctx.createLinearGradient(x*Z,0,(x+w)*Z,0):ctx.createLinearGradient(0,y*Z,0,(y+h)*Z);g.addColorStop(0,c1);g.addColorStop(1,c2);ctx.fillStyle=g;ctx.fillRect(x*Z,y*Z,w*Z,h*Z);}
+function shade(hex,f){if(!A())return hex;const n=parseInt(hex.slice(1),16);const r=Math.min(255,((n>>16)&255)*f|0),g=Math.min(255,((n>>8)&255)*f|0),b=Math.min(255,(n&255)*f|0);return `rgb(${r},${g},${b})`;}
+function grad(x,y,w,h,c1,c2){ if(!A()){rect(x,y,w,h,c1);return;} const g=ctx.createLinearGradient(0,y*Z,0,(y+h)*Z);g.addColorStop(0,c1);g.addColorStop(1,c2);ctx.fillStyle=g;ctx.fillRect(x*Z,y*Z,w*Z,h*Z);}
+function alpha(a,fn){ if(!A()){if(a>0.5)fn();return;} ctx.save();ctx.globalAlpha=a;fn();ctx.restore(); }
 
 function drawMan(a,suit,helm){
-  const x=a.x,y=a.y,leg=Math.floor(a.anim/4)%2,d=a.dir;
-  if(a.turbo>0){suit=hsv((frame*23)%360);helm=hsv((frame*23+180)%360,0.6);}
   if(a.dead&&(a.dead>>2)&1)return;
   if(a.inv>0&&(frame>>2)&1&&!a.turbo)return;
-  const sHi=a.turbo?hsv((frame*23+30)%360,0.4):shade(suit,1.25),sLo=shade(suit,0.55),hHi=shade(helm,1.3),hLo=shade(helm,0.6);
-  // cień
-  rect(x+0.5,y+7.5,5,0.5,'rgba(0,0,0,0.5)');
-  // kask (okrągły wizjer)
-  rect(x+1,y+0.5,4,0.5,hHi);rect(x+0.5,y+1,5,2,helm);rect(x+0.5,y+3,5,0.5,hLo);
-  rect(x+1+(d>0?1.5:0),y+1.5,2.5,1,'#102030');rect(x+1.5+(d>0?1.5:0),y+1.5,1,0.5,'#8fd0ff'); // wizjer + odblask
-  // tułów skafandra z cieniowaniem i zamkiem
-  rect(x,y+3.5,6,3,suit);rect(x,y+3.5,1,3,sHi);rect(x+5,y+3.5,1,3,sLo);rect(x+2.5,y+4,1,2,sLo);
-  // ręka
+  if(a.turbo>0){suit=hsv((frame*23)%360);helm=hsv((frame*23+180)%360,0.6);}
+  const leg=Math.floor(a.anim/4)%2,d=a.dir,sHi=shade(suit,1.25),sLo=shade(suit,0.55),hHi=shade(helm,1.3),hLo=shade(helm,0.6);
+  ctx.save();
+  if(a.air>0){ // salto
+    ctx.translate((a.x+3)*Z,(a.y+4)*Z);ctx.rotate(d*a.air*0.35);ctx.translate(-(a.x+3)*Z,-(a.y+4)*Z);
+  }
+  const x=a.x,y=a.y,bob=(a.anim>>2)&1?0.5:0; // duża okrągła głowa podskakuje w biegu
+  if(A())rect(x+0.5,y+7.5,5,0.5,'rgba(0,0,0,0.5)');
+  // wielki okrągły kask
+  rect(x+1,y-0.5+bob,4,0.5,hHi);rect(x+0.5,y+bob,5,0.5,hHi);rect(x,y+0.5+bob,6,2.5,helm);rect(x+0.5,y+3+bob,5,0.5,hLo);
+  rect(x+1+(d>0?2:0),y+1.5+bob,3,1,'#102030');rect(x+1.5+(d>0?2:0),y+1.5+bob,1,0.5,'#8fd0ff');
+  // tułów
+  rect(x+0.5,y+3.5,5,3,suit);if(A()){rect(x+0.5,y+3.5,1,3,sHi);rect(x+4.5,y+3.5,1,3,sLo);rect(x+2.5,y+4,1,2,sLo);}
   rect(x+(d>0?5:0),y+4+(leg?0.5:0),1,1.5,sHi);
-  // nogi + buty
-  if(a.onLadder){rect(x,y+6.5,2,1.5,suit);rect(x+4,y+6.5,2,1.5,suit);rect(x,y+7.5,2,0.5,sLo);rect(x+4,y+7.5,2,0.5,sLo);}
+  if(a.onLadder){rect(x,y+6.5,2,1.5,suit);rect(x+4,y+6.5,2,1.5,suit);}
   else if(leg){rect(x+1,y+6.5,2,1.5,suit);rect(x+3,y+6.5,2,1.5,suit);rect(x+1,y+7.5,2,0.5,'#222');rect(x+3,y+7.5,2,0.5,'#222');}
   else{rect(x,y+6.5,2,1.5,suit);rect(x+4,y+6.5,2,1.5,suit);rect(x,y+7.5,2,0.5,'#222');rect(x+4,y+7.5,2,0.5,'#222');}
-  // poświata Turbo-Chrome
-  if(a.turbo>0){ctx.save();ctx.globalAlpha=0.25;rect(x-1.5,y-1.5,9,11,hsv((frame*23+90)%360));ctx.restore();}
+  if(a.turbo>0)alpha(0.25,()=>rect(x-1.5,y-1.5,9,11,hsv((frame*23+90)%360)));
+  ctx.restore();
 }
-function drawKanar(k,pal){
-  if(k.stun){ if((k.stun>>2)&1)return; }
-  const x=k.x,y=k.y,leg=Math.floor(k.anim/4)%2,d=k.dir,u=pal.kanar,uHi=shade(u,1.4),uLo=shade(u,0.55);
-  rect(x+0.5,y+7.5,5,0.5,'rgba(0,0,0,0.5)');
-  // czapka z daszkiem i otokiem
-  rect(x+0.5,y,5,1.5,pal.kanarHat);rect(x+0.5,y+1.5,5,0.5,'#222');rect(x+(d>0?4:-0.5),y+1.5,2.5,0.5,'#111');
-  // twarz z wąsem
-  rect(x+1,y+2,4,2,'#f0c090');rect(x+1.5+(d>0?1.5:0),y+2.5,1,0.5,'#000');rect(x+1.5+(d>0?1:0),y+3.5,2,0.5,'#503010');
-  // mundur z guzikami + identyfikator
-  rect(x,y+4,6,2.5,u);rect(x,y+4,1,2.5,uHi);rect(x+5,y+4,1,2.5,uLo);rect(x+2.5,y+4.5,1,0.5,'#ffd700');rect(x+2.5,y+5.5,1,0.5,'#ffd700');rect(x+(d>0?3.5:1),y+4.5,1.5,1,'#fff');
+function drawKanar(k,pal,big=false){
+  if(k.stun&&(k.stun>>2)&1&&!big)return;
+  const s=big?1.6:1,x=k.x,y=k.y,leg=Math.floor(k.anim/4)%2,d=k.dir,u=big?'#101010':pal.kanar,uHi=shade(u,1.6),uLo=shade(u,0.5),fat=k.kind==='fat';
+  ctx.save();
+  if(k.fly){ctx.translate((x+3)*Z,(y+4)*Z);ctx.rotate(k.anim*0.3);ctx.translate(-(x+3)*Z,-(y+4)*Z);}
+  if(big){ctx.translate(x*Z,y*Z);ctx.scale(s,s);ctx.translate(-x*Z,-y*Z);}
+  if(A())rect(x+0.5,y+7.5,fat?6:5,0.5,'rgba(0,0,0,0.5)');
+  rect(x+0.5,y,5,1.5,big?'#c00':pal.kanarHat);rect(x+0.5,y+1.5,5,0.5,'#222');rect(x+(d>0?4:-0.5),y+1.5,2.5,0.5,'#111');
+  rect(x+1,y+2,4,2,'#f0c090');rect(x+1.5+(d>0?1.5:0),y+2.5,1,0.5,'#000');
+  rect(x+0.5+(d>0?1:0),y+3.5,4.5,1,'#000'); // WIELKI czarny wąs
+  rect(x,y+4,fat?7:6,2.5,u);if(A()){rect(x,y+4,1,2.5,uHi);rect(x+(fat?6:5),y+4,1,2.5,uLo);}
+  rect(x+2.5,y+4.5,1,0.5,'#ffd700');rect(x+2.5,y+5.5,1,0.5,'#ffd700');rect(x+(d>0?3.5:1),y+4.5,1.5,1,'#fff');
   if(leg){rect(x+1,y+6.5,2,1.5,uLo);rect(x+3,y+6.5,2,1.5,uLo);}else{rect(x,y+6.5,2,1.5,uLo);rect(x+4,y+6.5,2,1.5,uLo);}
-  rect(x,y+7.5,6,0.5,'#000');
+  rect(x,y+7.5,fat?7:6,0.5,'#000');
+  if(k.alert){rect(x+2,y-4,2,3,'#ff0');rect(x+2,y-0.5,2,0.5,'#ff0');}
+  if(big){rect(x-1,y-4,8,1.5,'#c00');for(let i=0;i<(k.hp||0);i++)rect(x-1+i*3,y-4,2,1.5,'#f44');}
+  ctx.restore();
 }
-
-function text(s,x,y,c='#fff',big=false,shadow=true){ctx.font=(big?'16px ':'8px ')+FONT;ctx.textBaseline='top';if(shadow){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillText(s,x*Z+2,y*Z+2);}ctx.fillStyle=c;ctx.fillText(s,x*Z,y*Z);}
+function text(s,x,y,c='#fff',big=false,shadow=true){ctx.font=(big?'16px ':'8px ')+FONT;ctx.textBaseline='top';if(shadow&&A()){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillText(s,x*Z+2,y*Z+2);}ctx.fillStyle=c;ctx.fillText(s,x*Z,y*Z);}
 function center(s,y,c,big){ctx.font=(big?'16px ':'8px ')+FONT;const w=ctx.measureText(s).width/Z;text(s,(W-w)/2,y,c,big);}
 function gradText(s,y,big){ctx.font=(big?'32px ':'16px ')+FONT;const w=ctx.measureText(s).width;const x=(W*Z-w)/2;ctx.textBaseline='top';
-  ctx.fillStyle='#000';ctx.fillText(s,x+4,y*Z+4);const g=ctx.createLinearGradient(0,y*Z,0,y*Z+(big?32:16));g.addColorStop(0,'#fff');g.addColorStop(0.45,'#ffe080');g.addColorStop(0.5,'#c06000');g.addColorStop(1,'#ffb020');ctx.fillStyle=g;ctx.fillText(s,x,y*Z);}
-
-function copperBars(y0,h,n,speed){for(let i=0;i<n;i++){const yy=y0+i*(h/n);rect(0,yy,W,h/n+0.5,hsv((frame*speed+i*360/n)%360,0.8,0.5+0.5*Math.sin(i/n*Math.PI)));}}
+  ctx.fillStyle='#000';ctx.fillText(s,x+4,y*Z+4);
+  if(A()){const g=ctx.createLinearGradient(0,y*Z,0,y*Z+(big?32:16));g.addColorStop(0,'#fff');g.addColorStop(0.45,'#ffe080');g.addColorStop(0.5,'#c06000');g.addColorStop(1,'#ffb020');ctx.fillStyle=g;}else ctx.fillStyle='#ffe080';
+  ctx.fillText(s,x,y*Z);}
+function copperBars(y0,h,n,speed){for(let i=0;i<n;i++){const yy=y0+i*(h/n);rect(0,yy,W,h/n+0.5,hsv((frame*speed+i*360/n)%360,0.8,A()?0.5+0.5*Math.sin(i/n*Math.PI):1));}}
 
 function drawTile(c,px,py,pal){
-  if(c==='#'){ // peron: bevel 3D + płytki
-    rect(px,py,T,T,pal.wall);rect(px,py,T,1,pal.wallHi);rect(px,py,0.5,T,pal.wallHi);
-    rect(px,py+T-1.5,T,1.5,pal.wall2);rect(px+T-0.5,py,0.5,T,pal.wall2);
-    rect(px+(py/T&1?4:0.5),py+3,3,0.5,pal.wall2);rect(px+(py/T&1?4.5:1),py+3.5,3,0.5,'rgba(255,255,255,0.15)');
-  } else if(c==='H'){ // drabina: rurki z połyskiem
-    rect(px+1,py,1.5,T,pal.ladder);rect(px+1,py,0.5,T,pal.ladderHi);
-    rect(px+5.5,py,1.5,T,pal.ladder);rect(px+5.5,py,0.5,T,pal.ladderHi);
-    for(const sy of [1.5,5.5]){rect(px+1,py+sy,6,1,pal.ladder);rect(px+1,py+sy,6,0.5,pal.ladderHi);}
-  } else if(c==='T'){ // bilet
-    const b=Math.sin(frame/8);rect(px+1,py+2.5,6,3.5,pal.ticket);rect(px+1,py+2.5,6,0.5,'#fff');rect(px+1.5,py+3.5,1.5,1.5,'#000');
-    rect(px+4,py+3.5,2,0.5,'#c08000');rect(px+4,py+4.5,2,0.5,'#c08000');if(b>0.6)rect(px+1,py+2.5,1,3.5,'rgba(255,255,255,0.8)');
-  } else if(c==='C'){ // kaseta magnetofonowa
-    rect(px-0.5,py+1.5,9,6,'#1a1a1a');rect(px-0.5,py+1.5,9,0.5,'#555');rect(px+0.5,py+2.5,7,2,'#e8e0c0');
+  if(c==='#'){rect(px,py,T,T,pal.wall);if(A()){rect(px,py,T,1,pal.wallHi);rect(px,py,0.5,T,pal.wallHi);rect(px+T-0.5,py,0.5,T,pal.wall2);}
+    rect(px,py+T-1.5,T,1.5,pal.wall2);rect(px+(py/T&1?4:0.5),py+3,3,0.5,pal.wall2);}
+  else if(c==='='){rect(px,py+2,T,1,'#777');rect(px,py+5,T,1,'#777');rect(px+2,py,1,T,'#553');rect(px+6,py,1,T,'#553');}
+  else if(c==='N'){rect(px,py,T,T,'#000');if(A()){rect(px,py,T,0.5,pal.wall2);rect(px,py,0.5,T,pal.wall2);}rect(px+2,py+1,4,1,(frame>>4)&1?'#0f0':'#050');}
+  else if(c==='H'){rect(px+1,py,1.5,T,pal.ladder);rect(px+5.5,py,1.5,T,pal.ladder);if(A()){rect(px+1,py,0.5,T,pal.ladderHi);rect(px+5.5,py,0.5,T,pal.ladderHi);}
+    for(const sy of [1.5,5.5]){rect(px+1,py+sy,6,1,pal.ladder);if(A())rect(px+1,py+sy,6,0.5,pal.ladderHi);}}
+  else if(c==='U'||c==='D'){ // ruchome schody: przesuwające się stopnie
+    const off=(c==='U'?(-frame):frame)*0.7; rect(px+0.5,py,7,T,'#222');rect(px+0.5,py,1,T,'#888');rect(px+6.5,py,1,T,'#888');
+    for(let i=0;i<2;i++){const sy=(((off+i*4)%8)+8)%8;rect(px+1.5,py+sy,5,1.5,A()?'#b0b8c0':'#aaa');if(A())rect(px+1.5,py+sy,5,0.5,'#e0e8f0');}
+    rect(px+3,py+3.5,2,1,c==='U'?'#0f0':'#f80');}
+  else if(c==='G'){ // bramka biletowa
+    rect(px+0.5,py+1,2,7,'#999');rect(px+5.5,py+1,2,7,'#999');rect(px+2.5,py+3,3,1.5,(frame>>3)&1?'#f00':'#600');rect(px+0.5,py+1,2,0.5,'#ddd');rect(px+5.5,py+1,2,0.5,'#ddd');rect(px+1,py+2,1,1,'#0f0');}
+  else if(c==='V'){ // czarna płyta winylowa
+    const r=Math.sin(frame/7+px);rect(px+1,py+2,6,6,'#101010');rect(px+1.5,py+1.5,5,7,'#101010');rect(px+0.5,py+2.5,7,5,'#101010');
+    rect(px+3,py+4,2,2,'#e03030');if(A()){rect(px+2,py+2.5,1,1,'#555');rect(px+5,py+6.5,1,1,'#555');}if(r>0.7)rect(px+2,py+3,1,3,'#777');}
+  else if(c==='C'){rect(px-0.5,py+1.5,9,6,'#1a1a1a');rect(px-0.5,py+1.5,9,0.5,'#555');rect(px+0.5,py+2.5,7,2,'#e8e0c0');
     rect(px+1,py+5,2,2,'#eee');rect(px+5,py+5,2,2,'#eee');rect(px+1.5,py+5.5,1,1,'#000');rect(px+5.5,py+5.5,1,1,'#000');
-    rect(px+3,py+5.5,2,1,hsv((frame*17)%360));rect(px+1,py+3,6,0.5,hsv((frame*17+120)%360));
-  } else if(c==='E'){ // wagon metra: drzwi + okno + lampy
-    const open=ticketsLeft===0,col=open?pal.exit:'#444';
+    rect(px+3,py+5.5,2,1,hsv((frame*17)%360));rect(px+1,py+3,6,0.5,hsv((frame*17+120)%360));}
+  else if(c==='E'){const open=vinylLeft===0&&!boss,col=open?pal.exit:'#444';
     rect(px-3,py-9,14,17,shade(col,0.6));rect(px-2.5,py-8.5,13,16,col);rect(px-2.5,py-8.5,13,0.5,shade(col,1.5));
-    rect(px-1,py-7,10,4,open?'#cfe8ff':'#222');rect(px-1,py-7,10,1,'#fff');
-    rect(px+3.75,py-2,0.5,10,shade(col,0.5)); // szczelina drzwi
+    rect(px-1,py-7,10,4,open?'#cfe8ff':'#222');rect(px-1,py-7,10,1,'#fff');rect(px+3.75,py-2,0.5,10,shade(col,0.5));
     const l=(frame>>3)&1;rect(px-2.5,py-9.5,1,1,l?'#ff0':'#550');rect(px+9.5,py-9.5,1,1,l?'#550':'#ff0');
-    if(open){rect(px+1,py,6,8,'rgba(0,0,0,0.5)');if((frame>>3)&1)rect(px+2,py+1,4,6,'#fff');}
-  }
+    if(open){rect(px+1,py,6,8,A()?'rgba(0,0,0,0.5)':'#000');if((frame>>3)&1)rect(px+2,py+1,4,6,'#fff');}}
 }
-
+function drawTrain(pal){
+  if(!train.active)return; const x=train.x,y=21*T-1;
+  rect(x,y,64,17,"#303848");rect(x,y,64,2,"#8090a8");rect(x,y+14,64,3,"#181c24");
+  for(let i=0;i<5;i++){rect(x+3+i*12,y+4,8,6,(frame>>2)&1?'#ffe0a0':'#e0c080');}
+  rect(x+62,y+5,3,6,pal.exit);rect(x+60,y+2,4,2,'#ff0');rect(x-2,y+6,2,4,'#fff');rect(x,y+16,64,2,'#000');
+  alpha(0.3,()=>rect(x-20,y+2,20,14,'#fff'));
+}
 function draw(){
-  const L=LEVELS[level],pal=L.pal;
+  const pal=L().pal,st=S();
   ctx.setTransform(1,0,0,1,0,0);
   if(state==='title'){drawTitle();return;}
-  // tło: gradient + migające alarmy / flash
   grad(0,0,W,H,pal.bg,pal.bg2);
-  if(pal.alarm&&state==='play'&&(frame%60)<6){ctx.save();ctx.globalAlpha=0.45;rect(0,0,W,H,pal.alarm);ctx.restore();}
-  if(flash>0){ctx.save();ctx.globalAlpha=0.6;rect(0,0,W,H,'#ff2020');ctx.restore();}
-  // neonowe rury w tle tunelu
-  ctx.save();ctx.globalAlpha=0.18;for(let i=0;i<4;i++)rect(0,30+i*44,W,1,pal.neon);ctx.restore();
+  if(pal.alarm&&state==='play'&&(frame%60)<6)alpha(0.45,()=>rect(0,0,W,H,pal.alarm));
+  if(train.warn>0&&!train.active&&(train.warn>>3)&1)alpha(0.3,()=>rect(0,19*T,W,5*T,'#ff0'));
+  if(flash>0)alpha(0.6,()=>rect(0,0,W,H,'#ff2020'));
+  if(A()){alpha(0.18,()=>{for(let i=0;i<4;i++)rect(0,30+i*44,W,1,pal.neon);});}
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)drawTile(grid[y][x],x*T,y*T,pal);
-  // neonowa tablica nazwy stacji
-  ctx.save();ctx.globalAlpha=0.35+0.15*Math.sin(frame/10);text(L.name,W-8-L.name.length*4,13,pal.neon,false,false);ctx.restore();
+  if(A())alpha(0.35+0.15*Math.sin(frame/10),()=>text(st.name,W-8-st.name.length*4,13,pal.neon,false,false));
   for(const k of kanars)drawKanar(k,pal);
+  if(boss)drawKanar(boss,pal,true);
   players.forEach((p,i)=>drawMan(p,i===0?pal.suit1:pal.suit2,i===0?pal.helm1:pal.helm2));
-  // HUD – pasek z gradientem
+  drawTrain(pal);
   grad(0,0,W,8,'#303848','#101420');rect(0,8,W,0.5,'#6a7a90');
   text('WYNIK '+String(score).padStart(6,'0'),3,0.5,'#fff');
-  text('ZYCIA '+lives,120,0.5,'#ff8080');
-  text('BILETY '+ticketsLeft,180,0.5,pal.ticket);
-  text(String(level+1)+(lap?'+'+lap:'')+' '+L.name,236,0.5,pal.neon);
-  if(msgT>0){ctx.save();ctx.globalAlpha=0.6;rect(0,84,W,22,'#000');ctx.restore();gradText(msg,88,false);}
+  text('ZYCIA '+lives,112,0.5,'#ff8080');
+  text('WINYLE '+vinylLeft,172,0.5,'#fff');
+  text('ST.'+(level+1)+(lap?'+'+lap:'')+' '+L().name.replace('LINIA ','L.'),236,0.5,pal.neon);
+  if(msgT>0){alpha(0.6,()=>rect(0,84,W,22,'#000'));gradText(msg,88,false);}
   const tp=players.find(p=>p.turbo>0);
-  if(tp){rect(99,183,122,6,'#000');for(let i=0;i<Math.floor(tp.turbo/4);i++)rect(100+i,184,1,4,hsv((frame*23+i*6)%360));}
+  if(tp){rect(99,183,122,6,'#000');for(let i=0;i<Math.floor(tp.turbo/2.5);i++)rect(100+i,184,1,4,hsv((frame*23+i*6)%360));}
   if(paused)center('PAUZA',96,'#fff',true);
-  if(state==='over'){ctx.save();ctx.globalAlpha=0.85;rect(50,66,220,60,'#000');ctx.restore();rect(50,66,220,0.5,'#f44');rect(50,125.5,220,0.5,'#f44');
-    gradText('ZLAPALI CIE!',74,false);center('WYNIK '+score,98,'#fff');center('1 = 1 GRACZ   2 = 2 GRACZY',112,'#aaa');}
+  if(state==='over'){alpha(0.85,()=>rect(40,60,240,72,'#000'));rect(40,60,240,0.5,'#f44');rect(40,131.5,240,0.5,'#f44');
+    gradText('MANDAT',66,true);center('GAME OVER',96,'#ff4040',true);center('WYNIK '+score,114,'#fff');center('1 = 1 GRACZ   2 = 2 GRACZY',122,'#aaa');}
+  if(state==='win'){alpha(0.85,()=>rect(30,56,260,80,'#000'));copperBars(56,4,8,3);copperBars(132,4,8,3);
+    gradText('KONCERT!',62,true);center('DOJECHALES NA KONIEC LINII',96,'#fff');center('WE GOT GAME  -  WYNIK '+score,108,'#ffe080');center('1 / 2 = NASTEPNE OKRAZENIE (TRUDNIEJ)',122,'#aaa');}
 }
 let scrollX=W;
-const SCROLL='   MODFUNK W WERSJI AMIGA / ATARI ST ...  ZBIERAJ BILETY, UNIKAJ KANAROW, ZNAJDZ KASETE I WLACZ TURBO-CHROME ...  KOLOR SKAFANDRA ZALEZY OD LINII METRA ...  POZDROWIENIA DLA WSZYSTKICH PASAZEROW BEZ BILETU ...   ';
+const SCROLL='   SUBWAY RALLY  -  MODFUNK: WE GOT GAME ...  BIALY KOMBINEZON, KASK RAJDOWY, ZERO BILETU ...  ZBIERZ WINYLE, UNIKAJ KANAROW, ZNAJDZ KASETE I WLACZ TURBO-CHROME ...  UWAZAJ NA POCIAG NA PERONIE - CHOWAJ SIE WE WNEKACH ...  NA KONCU LINII CZEKA GLOWNY KIEROWNIK RUCHU ...  KLAWISZ F = GRAFIKA AMIGA/ST LUB ATARI XL ...   ';
 function drawTitle(){
   grad(0,0,W,H,'#000010','#101840');
   copperBars(14,26,13,2);
-  // kratka w stylu dem
-  ctx.save();ctx.globalAlpha=0.12;for(let i=0;i<W;i+=16)rect(i,0,0.5,H,'#8af');for(let i=0;i<H;i+=16)rect(0,i,W,0.5,'#8af');ctx.restore();
-  gradText('MODFUNK',18,true);
-  center('UCIECZKA PRZED KANARAMI',56,'#cfd8ff');
-  center('AMIGA / ATARI ST EDITION',68,'#7a86b0');
-  // panel z poziomami
-  ctx.save();ctx.globalAlpha=0.55;rect(14,84,292,80,'#000');ctx.restore();rect(14,84,292,0.5,'#8af');rect(14,164,292,0.5,'#8af');
-  LEVELS.forEach((L,i)=>{const y=90+i*14;const a={x:22,y,w:6,h:8,dir:1,anim:frame>>2,turbo:0,dead:0,onLadder:false};drawMan(a,L.pal.suit1,L.pal.helm1);text((i+1)+'. '+L.name+' - '+L.sub,36,y,L.pal.neon);});
-  const a={x:22,y:134,w:6,h:8,dir:1,anim:frame>>2,turbo:1,dead:0,onLadder:false};drawMan(a,'#fff','#fff');text('KASETA = TURBO-CHROME, TARANUJ KANAROW!',36,134,'#fff');
-  const b={x:22,y:148,w:6,h:8,dir:1,anim:frame>>2,turbo:0,dead:0,onLadder:false};drawMan(b,'#202020','#c0c0c0');text('GRACZ 2 = CZARNY SKAFANDER',36,148,'#aaa');
-  const kk={x:200,y:148,w:6,h:8,dir:-1,anim:frame>>2,stun:0};drawKanar(kk,LEVELS[0].pal);text('KANAR',212,148,'#ff8');
-  if((frame>>4)&1)center('WCISNIJ 1 (1 GRACZ) LUB 2 (2 GRACZY)',170,'#ffff40');
-  // sinusoidalny scroller
+  if(A())alpha(0.12,()=>{for(let i=0;i<W;i+=16)rect(i,0,0.5,H,'#8af');for(let i=0;i<H;i+=16)rect(0,i,W,0.5,'#8af');});
+  gradText(TITLE,18,true);
+  center('MODFUNK: WE GOT GAME  -  UCIECZKA PRZED KANARAMI',56,'#cfd8ff');
+  center(A()?'AMIGA / ATARI ST EDITION':'ATARI 800XL EDITION',68,'#7a86b0');
+  alpha(0.55,()=>rect(14,80,292,86,'#000'));rect(14,80,292,0.5,'#8af');rect(14,166,292,0.5,'#8af');
+  LINES.forEach((Ln,i)=>{const y=86+i*13;const a={x:22,y,w:6,h:8,dir:1,anim:frame>>2,turbo:0,dead:0,onLadder:false,air:0,inv:0};drawMan(a,Ln.pal.suit1,Ln.pal.helm1);text((i+1)+'. '+Ln.name+' - '+Ln.sub,36,y,Ln.pal.neon);});
+  text('KAZDA LINIA: BRAMKI > RUCHOME SCHODY > PERON I TORY',36,125,'#9ab');
+  const a={x:22,y:136,w:6,h:8,dir:1,anim:frame>>2,turbo:1,dead:0,onLadder:false,air:0,inv:0};drawMan(a,'#fff','#fff');text('KASETA = TURBO-CHROME 5s, TARANUJ KANAROW!',36,136,'#fff');
+  const b={x:22,y:150,w:6,h:8,dir:1,anim:frame>>2,turbo:0,dead:0,onLadder:false,air:0,inv:0};drawMan(b,'#202020','#c0c0c0');text('GRACZ 2 = CZARNY SKAFANDER',36,150,'#aaa');
+  const k1={x:200,y:150,w:7,h:8,dir:-1,anim:frame>>2,stun:0,kind:'fat',fly:0};drawKanar(k1,LINES[0].pal);text('GRUBY',212,150,'#ff8');
+  const k2={x:256,y:150,w:6,h:8,dir:-1,anim:frame>>2,stun:0,kind:'hunter',fly:0,alert:1};drawKanar(k2,LINES[0].pal);text('LOWCA',268,150,'#f88');
+  if((frame>>4)&1)center('WCISNIJ 1 (1 GRACZ) LUB 2 (2 GRACZY)',172,'#ffff40');
   ctx.font='8px '+FONT;scrollX-=0.6;const tw=ctx.measureText(SCROLL).width/Z;if(scrollX<-tw)scrollX=W;
-  for(let i=0;i<SCROLL.length;i++){const cx=scrollX+i*8;if(cx<-8||cx>W)continue;text(SCROLL[i],cx,182+Math.sin(frame/8+i/2)*3,hsv((frame*3+i*10)%360,0.5));}
+  for(let i=0;i<SCROLL.length;i++){const cx=scrollX+i*8;if(cx<-8||cx>W)continue;text(SCROLL[i],cx,182+(A()?Math.sin(frame/8+i/2)*3:0),hsv((frame*3+i*10)%360,0.5));}
 }
-
-// --- Pętla 60Hz ----------------------------------------------------
+// --- Pętla 60Hz ------------------------------------------------------
 let last=0,acc=0;
-function loop(t){const dt=Math.min(t-last,100);last=t;acc+=dt;while(acc>=1000/60){update();acc-=1000/60;if(state==='title')frame++;}draw();requestAnimationFrame(loop);}
+function loop(t){const dt=Math.min(t-last,100);last=t;acc+=dt;while(acc>=1000/60){update();acc-=1000/60;if(state!=='play')frame++;}draw();requestAnimationFrame(loop);}
 requestAnimationFrame(loop);
 </script>
 </body>
