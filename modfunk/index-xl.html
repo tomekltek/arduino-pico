@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>MODFUNK – Ucieczka przed Kanarami (Atari 800XL style)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#ccc;font-family:monospace;overflow:hidden}
+  #wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+  canvas{image-rendering:pixelated;image-rendering:crisp-edges;background:#000;width:min(100vw,calc(88vh * 320 / 192));height:auto}
+  #help{font-size:12px;color:#888;margin-top:6px;text-align:center;line-height:1.5}
+  kbd{background:#222;border:1px solid #555;padding:0 4px;border-radius:3px;color:#ddd}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="c" width="320" height="192"></canvas>
+<div id="help">
+  <b>P1</b> <kbd>←</kbd><kbd>→</kbd> bieg · <kbd>↑</kbd><kbd>↓</kbd> drabina · <kbd>Spacja</kbd> skok &nbsp;|&nbsp;
+  <b>P2</b> <kbd>A</kbd><kbd>D</kbd> · <kbd>W</kbd><kbd>S</kbd> · <kbd>Shift</kbd> skok &nbsp;|&nbsp;
+  <kbd>1</kbd>/<kbd>2</kbd> start 1P/2P · <kbd>M</kbd> dźwięk · <kbd>P</kbd> pauza
+</div>
+</div>
+<script>
+'use strict';
+// ====================== MODFUNK ======================
+// Platformówka w duchu Bruce Lee / Lode Runner na Atari 800XL.
+// 320x192, kafelki 8x8 (40x24), palette swapping skafandrów per poziom.
+const W=320,H=192,T=8,COLS=40,ROWS=24;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+
+// --- Poziomy (linie metra) ---------------------------------------
+// #  peron/strop    H drabina/schody    T bilet    C kaseta (Turbo-Chrome)
+// E  wyjście (wagon) K kanar             P gracz1   Q gracz2   .  pusto
+const LEVELS=[
+{ name:'LINIA NIEBIESKA', sub:'STACJE TECHNICZNE', speed:0.55, kanarCount:3,
+  pal:{bg:'#101418',wall:'#5a6470',wall2:'#3a424c',ladder:'#8a9bb0',ticket:'#f0e060',exit:'#4070ff',
+       suit1:'#ffffff',helm1:'#dddddd',suit2:'#202020',helm2:'#c0c0c0',kanar:'#2a6cff',kanarHat:'#ffd700',alarm:null},
+  map:[
+"########################################",
+"#P.....................................#",
+"#######H############T#######H###########",
+"#......H............#.......H..........#",
+"#..T...H.....K......#.......H.....T....#",
+"####H#######################H####H######",
+"#...H.......................H....H.....#",
+"#...H..T...........T.......H....H..C..#",
+"#########H#################H###########",
+"#........H...K...........H.............#",
+"#....T...H...............H.......T.....#",
+"#H##############H############H##########",
+"#H..............H............H.........#",
+"#H....T.........H....K.......H.....T...#",
+"########H########H#####H################",
+"#.......H........H.....H...............#",
+"#...T...H........H.....H...T...........#",
+"######H############H####H#####H#########",
+"#.....H............H....H.....H........#",
+"#.....H.....T......H....H.....H....T...#",
+"#H###############H############H#########",
+"#H..............H..............H..Q.E..#",
+"#H..............H..............H.......#",
+"########################################"]},
+{ name:'LINIA ZIELONA', sub:'PODZIEMNE OGRODY', speed:0.8, kanarCount:4,
+  pal:{bg:'#0a1a0c',wall:'#2e8b3a',wall2:'#1b5a24',ladder:'#8fd48f',ticket:'#ffffff',exit:'#20e040',
+       suit1:'#ffe600',helm1:'#ff8c00',suit2:'#202020',helm2:'#c0c0c0',kanar:'#108030',kanarHat:'#ffd700',alarm:null},
+  map:[
+"########################################",
+"#P.........T......................T....#",
+"####H#########H##############H##########",
+"#...H.........H..............H.........#",
+"#...H..K......H...T...........H...C....#",
+"#########H####################H#########",
+"#........H....................H........#",
+"#.T......H........K.........H.....T....#",
+"#####H###########H#########H###########",
+"#....H...........H.........H...........#",
+"#....H.....T.....H....T....H.......K...#",
+"##########H############H##########H#####",
+"#.........H............H..........H....#",
+"#...T.....H...K........H......T...H....#",
+"#H###############H###########H##########",
+"#H...............H...........H.........#",
+"#H.....T.........H....T......H.........#",
+"######H#####H##########H########H#######",
+"#.....H.....H..........H........H......#",
+"#.....H..T..H..........H..T.....H......#",
+"##H#############H#############H#########",
+"#.H.............H.............H....Q.E.#",
+"#.H.............H.............H........#",
+"########################################"]},
+{ name:'LINIA CZERWONA', sub:'TUNELE POD RZEKA', speed:1.05, kanarCount:5,
+  pal:{bg:'#160608',wall:'#8a2a2a',wall2:'#4a1414',ladder:'#d08080',ticket:'#ffffff',exit:'#ff3030',
+       suit1:'#40e0ff',helm1:'#b040ff',suit2:'#202020',helm2:'#c0c0c0',kanar:'#c01010',kanarHat:'#ffd700',alarm:'#ff2020'},
+  map:[
+"########################################",
+"#P.......T.................T...........#",
+"#######H###########H###########H########",
+"#......H...........H...........H.......#",
+"#..K...H....T......H...K.......H..T....#",
+"#####H####################H#############",
+"#....H....................H............#",
+"#....H..........T.........H.....K......#",
+"##########H#######################H#####",
+"#.........H..............K........H....#",
+"#...T.....H.......T...............H..C.#",
+"#H###############H############H#########",
+"#H...............H............H........#",
+"#H....T..........H...K........H...T....#",
+"#######H###############H################",
+"#......H...............H...............#",
+"#...T..H.......T.......H.......T.......#",
+"############H##########H#######H########",
+"#...........H..........H.......H.......#",
+"#.....T.....H....K.....H.......H..T....#",
+"#H################H############H########",
+"#H................H............H..Q.E..#",
+"#H................H............H.......#",
+"########################################"]}
+];
+
+// --- Dźwięk (POKEY-owe piski) ------------------------------------
+let AC=null,mute=false;
+function beep(f,d=0.06,type='square',v=0.08){
+  if(mute)return; try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+  const o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.value=f;
+  g.gain.value=v;g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+d);
+  o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d);}catch(e){}
+}
+
+// --- Stan --------------------------------------------------------
+const keys={};
+addEventListener('keydown',e=>{keys[e.code]=true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault(); onKey(e.code);});
+addEventListener('keyup',e=>{keys[e.code]=false;});
+
+let state='title',level=0,lap=0,grid=[],players=[],kanars=[],ticketsLeft=0,frame=0,score=0,flash=0,msg='',msgT=0,lives=5,paused=false;
+let twoP=false;
+
+function tile(x,y){ if(x<0||y<0||x>=COLS||y>=ROWS)return '#'; return grid[y][x]; }
+function solid(px,py){ return tile(Math.floor(px/T),Math.floor(py/T))==='#'; }
+function ladderAt(px,py){ return tile(Math.floor(px/T),Math.floor(py/T))==='H'; }
+
+function mkActor(x,y,kind){ return {x,y,vx:0,vy:0,w:6,h:8,dir:1,kind,onLadder:false,ground:false,anim:0,dead:0,turbo:0,stun:0,respawn:{x,y}}; }
+
+function loadLevel(i){
+  const L=LEVELS[i]; grid=L.map.map(r=>r.split('')); kanars=[]; ticketsLeft=0;
+  const P1=players[0]||null,P2=players[1]||null; players=[];
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const c=grid[y][x];
+    if(c==='T')ticketsLeft++;
+    if(c==='K'){kanars.push(mkActor(x*T+1,y*T,'kanar'));grid[y][x]='.';}
+    if(c==='P'){const p=mkActor(x*T+1,y*T,'p1');p.id=0;players.push(p);grid[y][x]='.';}
+    if(c==='Q'){if(twoP){const p=mkActor(x*T+1,y*T,'p2');p.id=1;players.push(p);}grid[y][x]='.';}
+  }
+  // ekstra kanary na kolejnych okrążeniach
+  for(let k=kanars.length;k<L.kanarCount+lap;k++){const b=kanars[k%kanars.length];kanars.push(mkActor(b.x,b.y,'kanar'));}
+  flash=0; msg=L.name+' – '+L.sub; msgT=150;
+}
+
+function startGame(p2){ twoP=p2; level=0; lap=0; score=0; lives=5; players=[]; loadLevel(0); state='play'; beep(440,0.1); }
+
+function onKey(code){
+  if(code==='KeyM'){mute=!mute;return;}
+  if(code==='KeyP'&&state==='play'){paused=!paused;return;}
+  if(state==='title'||state==='over'||state==='win'){
+    if(code==='Digit1')startGame(false);
+    if(code==='Digit2')startGame(true);
+  }
+}
+
+// --- Fizyka ------------------------------------------------------
+function moveActor(a,dx,dy){
+  // ruch poziomy
+  a.x+=dx;
+  if(dx>0&&(solid(a.x+a.w,a.y)||solid(a.x+a.w,a.y+a.h-1)))a.x=Math.floor((a.x+a.w)/T)*T-a.w;
+  if(dx<0&&(solid(a.x,a.y)||solid(a.x,a.y+a.h-1)))a.x=Math.floor(a.x/T)*T+T;
+  // pionowy
+  a.y+=dy;
+  if(dy>0&&(solid(a.x,a.y+a.h)||solid(a.x+a.w-1,a.y+a.h))){a.y=Math.floor((a.y+a.h)/T)*T-a.h;a.vy=0;a.ground=true;}
+  if(dy<0&&(solid(a.x,a.y)||solid(a.x+a.w-1,a.y))){a.y=Math.floor(a.y/T)*T+T;a.vy=0;}
+}
+function centerOnLadder(a){ const cx=a.x+a.w/2; return ladderAt(cx,a.y+a.h/2)||ladderAt(cx,a.y+a.h); }
+
+function updatePlayer(p){
+  if(p.dead>0){p.dead--; if(p.dead===0){p.x=p.respawn.x;p.y=p.respawn.y;p.vy=0;p.inv=120;} return;}
+  if(p.inv>0)p.inv--;
+  const k=p.id===0?{l:'ArrowLeft',r:'ArrowRight',u:'ArrowUp',d:'ArrowDown',j:'Space'}
+                   :{l:'KeyA',r:'KeyD',u:'KeyW',d:'KeyS',j:'ShiftLeft'};
+  const sp=1.2+(p.turbo>0?0.5:0);
+  let dx=0;
+  if(keys[k.l]){dx=-sp;p.dir=-1;} if(keys[k.r]){dx=sp;p.dir=1;}
+  const onL=centerOnLadder(p);
+  const wantU=keys[k.u],wantD=keys[k.d];
+  if(onL&&(wantU||wantD||p.onLadder)){
+    if(wantU||wantD){p.onLadder=true;}
+    if(p.onLadder){
+      p.vy=0; let dy=0; if(wantU)dy=-1; if(wantD)dy=1;
+      // wyrównaj do drabiny
+      const lx=Math.floor((p.x+p.w/2)/T)*T+1; p.x+=(lx-p.x)*0.5;
+      moveActor(p,dx*0.6,dy);
+      if(!centerOnLadder(p)&&dy<0){p.onLadder=false;p.ground=true;}
+      if(dx!==0&&!wantU&&!wantD&&p.ground)p.onLadder=false;
+      p.anim+=Math.abs(dy)+Math.abs(dx);
+      return;
+    }
+  } else p.onLadder=false;
+  // grawitacja
+  p.ground=false; p.vy=Math.min(p.vy+0.25,3);
+  if(keys[k.j]&&p.wasGround){p.vy=-3.0;beep(660,0.05,'triangle',0.05);}
+  moveActor(p,dx,p.vy);
+  p.wasGround=p.ground;
+  if(dx!==0)p.anim+=1;
+  // zbieranie
+  const tx=Math.floor((p.x+p.w/2)/T),ty=Math.floor((p.y+p.h/2)/T);
+  const c=tile(tx,ty);
+  if(c==='T'){grid[ty][tx]='.';ticketsLeft--;score+=100;beep(880,0.08);beep(1320,0.1);if(ticketsLeft===0){msg='WYJSCIE OTWARTE!';msgT=90;}}
+  if(c==='C'){grid[ty][tx]='.';p.turbo=60*8;score+=250;for(let i=0;i<6;i++)setTimeout(()=>beep(400+i*150,0.08),i*60);msg='TURBO-CHROME!';msgT=90;}
+  if(c==='E'&&ticketsLeft===0){nextLevel();}
+  if(p.turbo>0)p.turbo--;
+}
+
+function updateKanar(k,L){
+  if(k.stun>0){k.stun--; if(k.stun===0){k.x=k.respawn.x;k.y=k.respawn.y;} return;}
+  const sp=L.speed+lap*0.15;
+  // cel: najbliższy żywy gracz
+  let tgt=null,bd=1e9;
+  for(const p of players){if(p.dead)continue;const d=Math.abs(p.x-k.x)+Math.abs(p.y-k.y)*2;if(d<bd){bd=d;tgt=p;}}
+  const onL=centerOnLadder(k);
+  if(tgt&&onL&&Math.abs(tgt.y-k.y)>4){
+    const dy=tgt.y<k.y?-1:1;
+    // sprawdź czy drabina prowadzi w tę stronę
+    const cx=k.x+k.w/2;
+    if((dy<0&&ladderAt(cx,k.y-1))||(dy>0&&ladderAt(cx,k.y+k.h+1))){
+      k.onLadder=true;k.vy=0;const lx=Math.floor(cx/T)*T+1;k.x+=(lx-k.x)*0.5;
+      moveActor(k,0,dy*sp);k.anim+=1;return;
+    }
+  }
+  k.onLadder=false;
+  if(tgt){
+    const ddx=tgt.x-k.x;
+    if(Math.abs(ddx)>2)k.dir=ddx>0?1:-1;
+    // jeśli gracz na innym piętrze i brak drabiny tu – patroluj szukając drabiny
+    if(Math.abs(tgt.y-k.y)>4&&!onL){/* patrol dalej w swoim kierunku */}
+  }
+  k.ground=false;k.vy=Math.min(k.vy+0.25,3);
+  const ox=k.x;moveActor(k,k.dir*sp,k.vy);
+  if(k.x===ox)k.dir*=-1;
+  // nie spadaj z krawędzi (poza przypadkiem gdy ścigasz w dół)
+  const fx=k.x+k.w/2+k.dir*4;
+  if(k.ground&&!solid(fx,k.y+k.h+1)&&!ladderAt(fx,k.y+k.h+1)&&!(tgt&&tgt.y>k.y+8))k.dir*=-1;
+  k.anim+=1;
+}
+
+function collide(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+
+function nextLevel(){
+  score+=500+100*lap; beep(523,0.1);setTimeout(()=>beep(659,0.1),100);setTimeout(()=>beep(784,0.2),200);
+  level++; if(level>=LEVELS.length){level=0;lap++;}
+  loadLevel(level);
+}
+
+function update(){
+  if(state!=='play'||paused)return;
+  frame++; const L=LEVELS[level];
+  for(const p of players)updatePlayer(p);
+  for(const k of kanars){updateKanar(k,L);
+    for(const p of players){ if(p.dead||k.stun||(p.inv>0&&!p.turbo))continue;
+      if(collide(p,k)){
+        if(p.turbo>0){k.stun=60*4;score+=300;beep(200,0.2,'sawtooth',0.1);msg='KANAR STARANOWANY!';msgT=60;}
+        else{p.dead=60;lives--;beep(120,0.4,'sawtooth',0.12);flash=8;
+          if(lives<=0){state='over';}
+        }
+      }
+    }
+  }
+  if(msgT>0)msgT--; if(flash>0)flash--;
+}
+
+// --- Rysowanie ---------------------------------------------------
+function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x|0,y|0,w,h);}
+function hsv(h){const f=(n)=>{const k=(n+h/60)%6;return Math.round(255*(1-Math.max(0,Math.min(k,4-k,1))));};return `rgb(${f(5)},${f(3)},${f(1)})`;}
+
+function drawMan(a,suit,helm,pal){
+  const x=a.x|0,y=a.y|0,leg=Math.floor(a.anim/4)%2;
+  if(a.turbo>0){suit=hsv((frame*23)%360);helm=hsv((frame*23+180)%360);}
+  if(a.dead&&(a.dead>>2)&1)return;
+  if(a.inv>0&&(frame>>2)&1&&!a.turbo)return;
+  // kask (wizjer) 
+  rect(x+1,y,4,3,helm); rect(x+1+(a.dir>0?2:0),y+1,2,1,'#000');
+  // tułów skafandra
+  rect(x,y+3,6,3,suit);
+  // nogi
+  if(a.onLadder){rect(x+0,y+6,2,2,suit);rect(x+4,y+6,2,2,suit);}
+  else if(leg){rect(x+1,y+6,2,2,suit);rect(x+3,y+6,2,2,suit);}
+  else{rect(x+0,y+6,2,2,suit);rect(x+4,y+6,2,2,suit);}
+}
+function drawKanar(k,pal){
+  if(k.stun){ if((k.stun>>2)&1)return; }
+  const x=k.x|0,y=k.y|0,leg=Math.floor(k.anim/4)%2;
+  rect(x,y,6,2,pal.kanarHat); rect(x+1,y+2,4,2,'#f0c090'); // czapka + twarz
+  rect(x+1+(k.dir>0?2:0),y+2,1,1,'#000');
+  rect(x,y+4,6,2,pal.kanar); rect(x+2,y+4,2,2,'#fff'); // mundur + identyfikator
+  if(leg){rect(x+1,y+6,2,2,pal.kanar);rect(x+3,y+6,2,2,pal.kanar);}else{rect(x,y+6,2,2,pal.kanar);rect(x+4,y+6,2,2,pal.kanar);}
+}
+
+function text(s,x,y,c='#fff',big=false){ctx.fillStyle=c;ctx.font=(big?'12px':'8px')+' monospace';ctx.textBaseline='top';ctx.fillText(s,x,y);}
+function center(s,y,c,big){ctx.font=(big?'12px':'8px')+' monospace';const w=ctx.measureText(s).width;text(s,(W-w)/2|0,y,c,big);}
+
+function draw(){
+  const L=LEVELS[level],pal=L.pal;
+  let bg=pal.bg;
+  if(pal.alarm&&state==='play'&&(frame%60)<6)bg=pal.alarm; // migające alarmy
+  if(flash>0)bg='#ff2020';
+  rect(0,0,W,H,bg);
+  if(state==='title'){drawTitle();return;}
+  // kafelki
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const c=grid[y][x],px=x*T,py=y*T;
+    if(c==='#'){rect(px,py,T,T,pal.wall);rect(px,py+T-2,T,2,pal.wall2);rect(px+(y&1?4:0),py+2,3,1,pal.wall2);}
+    else if(c==='H'){rect(px+1,py,1,T,pal.ladder);rect(px+6,py,1,T,pal.ladder);rect(px+1,py+2,6,1,pal.ladder);rect(px+1,py+6,6,1,pal.ladder);}
+    else if(c==='T'){const b=(frame>>3)&1;rect(px+1,py+2,6,4,pal.ticket);rect(px+2,py+3,b?2:1,2,'#000');}
+    else if(c==='C'){rect(px,py+2,8,5,'#333');rect(px+1,py+3,2,2,'#eee');rect(px+5,py+3,2,2,'#eee');rect(px+2,py+6,4,1,hsv((frame*17)%360));}
+    else if(c==='E'){const open=ticketsLeft===0;rect(px-2,py-8,12,16,open?pal.exit:'#444');rect(px,py-6,8,4,open?'#fff':'#222');if(open&&(frame>>3)&1)rect(px+2,py,4,6,'#000');}
+  }
+  for(const k of kanars)drawKanar(k,pal);
+  players.forEach((p,i)=>drawMan(p,i===0?pal.suit1:pal.suit2,i===0?pal.helm1:pal.helm2,pal));
+  // HUD
+  rect(0,0,W,8,'#000');
+  text('WYNIK '+String(score).padStart(6,'0'),4,0,'#fff');
+  text('ZYCIA '+lives,120,0,'#ff8080');
+  text('BILETY '+ticketsLeft,180,0,pal.ticket);
+  text((level+1)+(lap?'+'+lap:'')+' '+L.name,236,0,pal.exit);
+  if(msgT>0){center(msg,88,'#fff',true);}
+  const tp=players.find(p=>p.turbo>0);
+  if(tp){rect(100,184,Math.floor(tp.turbo/4),4,hsv((frame*23)%360));}
+  if(paused)center('PAUZA',96,'#fff',true);
+  if(state==='over'){rect(60,70,200,50,'#000');center('ZLAPALI CIE!',78,'#ff4040',true);center('WYNIK '+score,98,'#fff');center('1 = 1 GRACZ   2 = 2 GRACZY',108,'#aaa');}
+}
+function drawTitle(){
+  rect(0,0,W,H,'#000');
+  for(let i=0;i<8;i++)rect(0,20+i*6,W,3,hsv((frame*2+i*40)%360));
+  center('M O D F U N K',44,'#fff',true);
+  center('UCIECZKA PRZED KANARAMI',66,'#ccc');
+  center('ATARI 800XL EDITION',76,'#888');
+  // demo kolorów skafandrów per poziom
+  LEVELS.forEach((L,i)=>{const y=96+i*14;const a={x:20,y,w:6,h:8,dir:1,anim:frame>>2,turbo:0,dead:0,onLadder:false};drawMan(a,L.pal.suit1,L.pal.helm1,L.pal);text((i+1)+'. '+L.name+' – '+L.sub,34,y,L.pal.exit);});
+  const a={x:20,y:138,w:6,h:8,dir:1,anim:frame>>2,turbo:1,dead:0,onLadder:false};drawMan(a,'#fff','#fff',null);text('KASETA = TURBO-CHROME, TARANUJ KANAROW!',34,138,'#fff');
+  const b={x:20,y:150,w:6,h:8,dir:1,anim:frame>>2,turbo:0,dead:0,onLadder:false};drawMan(b,'#202020','#c0c0c0',null);text('GRACZ 2 = CZARNY SKAFANDER',34,150,'#aaa');
+  if((frame>>4)&1)center('WCISNIJ 1 (1 GRACZ) LUB 2 (2 GRACZY)',172,'#ffff40');
+  center('ZBIERZ WSZYSTKIE BILETY I WSIADZ DO WAGONU',182,'#777');
+}
+
+// --- Pętla 60Hz ----------------------------------------------------
+let last=0,acc=0;
+function loop(t){const dt=Math.min(t-last,100);last=t;acc+=dt;while(acc>=1000/60){update();acc-=1000/60;if(state==='title')frame++;}draw();requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
